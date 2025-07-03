@@ -153,7 +153,7 @@ def show_painel_classificaco_veiculo():
 
     if num_categorias == 1:
         df_faixas = pd.DataFrame({
-            "categoria": ["Cat. Única"],
+            "Categoria": ["Cat. Única"],
             "valor_inicial": [valor_min_base],
             "valor_final": [valor_max_base]
         })

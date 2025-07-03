@@ -203,65 +203,72 @@ def show_painel_classificaco_veiculo():
         lambda x: classificar_por_faixa(x, df_faixas_editado)
     )
     
-    # Etapa 0: Garantir que as colunas estejam no formato correto
-    df = base_filtrada.copy()
-    df = df[["MF Reformulada por Fipe e Ano", "Valor", "Categoria Valor"]].dropna()
+    # Se só houver uma categoria de valor, atribui diretamente
+    if base_filtrada["Categoria Valor"].nunique() == 1:
+        base_filtrada["Categoria Ajustada"] = base_filtrada["Categoria Valor"]
+        st.markdown("### Todas as observações pertencem à mesma categoria. Ajuste não é necessário.")
+        st.dataframe(base_filtrada)
+    else:
+    
+        # Etapa 0: Garantir que as colunas estejam no formato correto
+        df = base_filtrada.copy()
+        df = df[["MF Reformulada por Fipe e Ano", "Valor", "Categoria Valor"]].dropna()
 
-    # Etapa 1: Contagem de categorias por MF Reformulada
-    contagem = (
-        df.groupby(["MF Reformulada por Fipe e Ano", "Categoria Valor"])
-        .size()
-        .reset_index(name="frequencia")
-    )
+        # Etapa 1: Contagem de categorias por MF Reformulada
+        contagem = (
+            df.groupby(["MF Reformulada por Fipe e Ano", "Categoria Valor"])
+            .size()
+            .reset_index(name="frequencia")
+        )
 
-    # Identificar a(s) categoria(s) mais frequente(s) por MF
-    cat_max_freq = contagem.groupby("MF Reformulada por Fipe e Ano").apply(
-        lambda x: x[x["frequencia"] == x["frequencia"].max()]
-    ).reset_index(drop=True)
+        # Identificar a(s) categoria(s) mais frequente(s) por MF
+        cat_max_freq = contagem.groupby("MF Reformulada por Fipe e Ano").apply(
+            lambda x: x[x["frequencia"] == x["frequencia"].max()]
+        ).reset_index(drop=True)
 
-    # Separar os casos resolvidos diretamente (frequência não empatada)
-    casos_unicos = cat_max_freq.groupby("MF Reformulada por Fipe e Ano").filter(lambda x: len(x) == 1)
-    casos_unicos["Categoria Ajustada"] = casos_unicos["Categoria Valor"]
+        # Separar os casos resolvidos diretamente (frequência não empatada)
+        casos_unicos = cat_max_freq.groupby("MF Reformulada por Fipe e Ano").filter(lambda x: len(x) == 1)
+        casos_unicos["Categoria Ajustada"] = casos_unicos["Categoria Valor"]
 
-    # Etapa 2: Tratar empates pela média do valor
-    casos_empate = cat_max_freq.groupby("MF Reformulada por Fipe e Ano").filter(lambda x: len(x) > 1)
+        # Etapa 2: Tratar empates pela média do valor
+        casos_empate = cat_max_freq.groupby("MF Reformulada por Fipe e Ano").filter(lambda x: len(x) > 1)
 
-    # Média geral por categoria
-    media_geral_categoria = df.groupby("Categoria Valor")["Valor"].mean().to_dict()
+        # Média geral por categoria
+        media_geral_categoria = df.groupby("Categoria Valor")["Valor"].mean().to_dict()
 
-    # Média local por MF e categoria
-    media_local = (
-        df[df["MF Reformulada por Fipe e Ano"].isin(casos_empate["MF Reformulada por Fipe e Ano"])]
-        .groupby(["MF Reformulada por Fipe e Ano", "Categoria Valor"])["Valor"]
-        .mean()
-        .reset_index(name="media_local")
-    )
+        # Média local por MF e categoria
+        media_local = (
+            df[df["MF Reformulada por Fipe e Ano"].isin(casos_empate["MF Reformulada por Fipe e Ano"])]
+            .groupby(["MF Reformulada por Fipe e Ano", "Categoria Valor"])["Valor"]
+            .mean()
+            .reset_index(name="media_local")
+        )
 
-    # Anexar a média geral
-    media_local["media_geral"] = media_local["Categoria Valor"].map(media_geral_categoria)
+        # Anexar a média geral
+        media_local["media_geral"] = media_local["Categoria Valor"].map(media_geral_categoria)
 
-    # Calcular a diferença absoluta
-    media_local["dif_absoluta"] = (media_local["media_local"] - media_local["media_geral"]).abs()
+        # Calcular a diferença absoluta
+        media_local["dif_absoluta"] = (media_local["media_local"] - media_local["media_geral"]).abs()
 
-    # Selecionar a menor diferença para definir a Categoria Ajustada
-    cat_ajustada_empate = (
-        media_local.sort_values("dif_absoluta")
-        .groupby("MF Reformulada por Fipe e Ano")
-        .first()
-        .reset_index()[["MF Reformulada por Fipe e Ano", "Categoria Valor"]]
-    )
-    cat_ajustada_empate["Categoria Ajustada"] = cat_ajustada_empate["Categoria Valor"]
+        # Selecionar a menor diferença para definir a Categoria Ajustada
+        cat_ajustada_empate = (
+            media_local.sort_values("dif_absoluta")
+            .groupby("MF Reformulada por Fipe e Ano")
+            .first()
+            .reset_index()[["MF Reformulada por Fipe e Ano", "Categoria Valor"]]
+        )
+        cat_ajustada_empate["Categoria Ajustada"] = cat_ajustada_empate["Categoria Valor"]
 
-    # Concatenar os resultados
-    resultado_final = pd.concat([
-        casos_unicos[["MF Reformulada por Fipe e Ano", "Categoria Ajustada"]],
-        cat_ajustada_empate[["MF Reformulada por Fipe e Ano", "Categoria Ajustada"]]
-    ], ignore_index=True)
+        # Concatenar os resultados
+        resultado_final = pd.concat([
+            casos_unicos[["MF Reformulada por Fipe e Ano", "Categoria Ajustada"]],
+            cat_ajustada_empate[["MF Reformulada por Fipe e Ano", "Categoria Ajustada"]]
+        ], ignore_index=True)
 
-    # Juntar na base original
-    base_final = base_filtrada.merge(resultado_final, on="MF Reformulada por Fipe e Ano", how="left")
+        # Juntar na base original
+        base_final = base_filtrada.merge(resultado_final, on="MF Reformulada por Fipe e Ano", how="left")
 
-    # Exibir no Streamlit
-    st.markdown("### Base com Categoria Ajustada")
-    st.dataframe(base_final, hide_index = True)
+        # Exibir no Streamlit
+        st.markdown("### Base com Categoria Ajustada")
+        st.dataframe(base_final, hide_index = True)
     

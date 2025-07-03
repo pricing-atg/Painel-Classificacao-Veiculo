@@ -3,6 +3,8 @@ import pandas as pd
 import snowflake.connector
 import duckdb
 import numpy as np
+import io
+import xlsxwriter
 
 from authentication.login import login_user  # Manteve-se pois é do projeto
 
@@ -85,6 +87,8 @@ def show_painel_classificaco_veiculo():
                 format_func=lambda x: f"R$ {x:,.0f}".replace(",", ".")
             )
             
+            
+            
     # Aplicar os filtros com base nas seleções
     base_filtrada = base_classif.copy()
 
@@ -135,6 +139,56 @@ def show_painel_classificaco_veiculo():
             base_filtrada = base_filtrada[
                 ~base_filtrada["Blindados"].eq("Sim")
             ]
+        
+    st.write("**Filtro por Montadora Família (MF Reformulada por Fipe e Ano)**")
+    
+    with st.container():
+        coluna01, coluna02 = st.columns(2)
+
+        with coluna01:
+            # Upload do arquivo com as montadoras famílias
+            arquivo_mf = st.file_uploader("Importar arquivo com Montadoras Famílias (Excel ou .txt)", type=["xlsx", "xls", "txt"])
+            
+
+        with coluna02:
+            # Campo para colar os valores manualmente
+            texto_colado = st.text_area("Ou cole as Montadoras Famílias abaixo (uma por linha):", height=150)
+    
+
+    # Lista final para filtrar
+    lista_mf_filtrar = []
+
+    # Se um arquivo foi enviado
+    if arquivo_mf is not None:
+        try:
+            if arquivo_mf.name.endswith(".txt"):
+                conteudo = arquivo_mf.read().decode("utf-8")
+                lista_mf_filtrar = [linha.strip() for linha in conteudo.splitlines() if linha.strip()]
+            elif arquivo_mf.name.endswith((".xlsx", ".xls")):
+                df_arquivo = pd.read_excel(arquivo_mf)
+                primeira_coluna = df_arquivo.columns[0]
+                lista_mf_filtrar = df_arquivo[primeira_coluna].dropna().astype(str).tolist()
+        except Exception as e:
+            st.error(f"Erro ao ler o arquivo: {e}")
+
+    # Se o usuário colou manualmente
+    if texto_colado:
+        colados = [linha.strip() for linha in texto_colado.splitlines() if linha.strip()]
+        lista_mf_filtrar.extend(colados)
+
+    # Remover duplicados
+    lista_mf_filtrar = list(set(lista_mf_filtrar))
+
+    # Aplicar o filtro se houver montadoras especificadas
+    if lista_mf_filtrar:
+        base_filtrada = base_filtrada[
+            base_filtrada["MF Reformulada por Fipe e Ano"].isin(lista_mf_filtrar)
+        ]
+        st.success(f"{len(lista_mf_filtrar)} montadoras famílias foram aplicadas como filtro.")
+    
+    
+    st.divider()
+    
     
     st.markdown("### Definir Classificação por Faixa de Valor")
 
@@ -146,7 +200,7 @@ def show_painel_classificaco_veiculo():
     num_categorias = st.number_input(
         "Número de Categorias",
         min_value=1,
-        max_value=10,
+        max_value=20,
         value=1,
         step=1
     )
@@ -191,6 +245,8 @@ def show_painel_classificaco_veiculo():
         }
     )
     
+    
+    
     # Aplicar a classificação por faixa de valor
     def classificar_por_faixa(valor, faixas):
         for _, row in faixas.iterrows():
@@ -198,16 +254,20 @@ def show_painel_classificaco_veiculo():
                 return row["Categoria"]
         return "Fora da faixa"
 
+    
+    
     # Criar nova coluna 'categoria_valor' na base_filtrada
     base_filtrada["Categoria Valor"] = base_filtrada["Valor"].apply(
         lambda x: classificar_por_faixa(x, df_faixas_editado)
     )
     
+    
+    
     # Se só houver uma categoria de valor, atribui diretamente
     if base_filtrada["Categoria Valor"].nunique() == 1:
         base_filtrada["Categoria Ajustada"] = base_filtrada["Categoria Valor"]
-        st.markdown("### Todas as observações pertencem à mesma categoria. Ajuste não é necessário.")
-        st.dataframe(base_filtrada)
+        base_final = base_filtrada
+        
     else:
     
         # Etapa 0: Garantir que as colunas estejam no formato correto
@@ -267,8 +327,57 @@ def show_painel_classificaco_veiculo():
 
         # Juntar na base original
         base_final = base_filtrada.merge(resultado_final, on="MF Reformulada por Fipe e Ano", how="left")
+    
+    st.divider()
 
-        # Exibir no Streamlit
-        st.markdown("### Base com Categoria Ajustada")
-        st.dataframe(base_final, hide_index = True)
+    # Exibir no Streamlit
+    st.markdown("### Tabela de Classificação dos Veículos")
+    
+    base_final["Valor"] = base_final["Valor"].apply(lambda x: f"R$ {x:,.0f}".replace(",", "."))
+    
+    base_final = base_final.sort_values(by="Chave apoio", ascending=True)
+
+    st.dataframe(base_final, hide_index=True)
+
+    # Botão para exportar a tabela
+    if st.button("Exportar Tabela de Classificação"):
+        output = io.BytesIO()
+
+        # Criar arquivo Excel em memória
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Escreve começando na célula B2 (linha=1, coluna=1)
+            base_final.to_excel(writer, sheet_name='Tabela', index=False, startrow=1, startcol=1)
+
+            # Obter workbook e worksheet para aplicar formatação
+            workbook  = writer.book
+            worksheet = writer.sheets['Tabela']
+
+            # Formatos
+            formato_texto = workbook.add_format({'num_format': '@'})
+            formato_valor = workbook.add_format({'num_format': 'R$ #,##0.00'})
+            formato_ano   = workbook.add_format({'num_format': '0'})
+
+            # Aplicar formatação por coluna
+            for idx, col in enumerate(base_final.columns):
+                col_letter = chr(ord('B') + idx)  # A=65 → B=66
+                col_range = f"{col_letter}:{col_letter}"
+                if col == "Ano":
+                    worksheet.set_column(col_range, 10, formato_ano)
+                elif col == "Valor":
+                    worksheet.set_column(col_range, 15, formato_valor)
+                else:
+                    worksheet.set_column(col_range, 20, formato_texto)
+
+            # Nome do título acima da tabela
+            worksheet.write("B1", "Tabela de Classificação dos Veículos", workbook.add_format({'bold': True}))
+
+        # Baixar o arquivo
+        st.download_button(
+            label="📥 Baixar Excel",
+            data=output.getvalue(),
+            file_name="Tabela de Classificação dos Veículos.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    
     

@@ -1,0 +1,14 @@
+credentials:
+  usernames:
+    pricing:
+      email: pricing
+      name: Pricing
+      "password": "$2b$12$hNwT8FlJPiNCw26Q.vHvUe7ODT4q17308KvGWqqPY85R8zJ1Xeiyi"
+    produtos:
+      email: produtos
+      name: Produtos
+      "password": "$2b$12$hNwT8FlJPiNCw26Q.vHvUe7ODT4q17308KvGWqqPY85R8zJ1Xeiyi"
+cookie:
+  expiry_days: 1
+  key: random_signature_key
+  name: random_cookie_name
